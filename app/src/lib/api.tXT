@@ -5,7 +5,10 @@
  */
 
 const API_BASE_URL = requireEnv("VITE_API_BASE_URL", import.meta.env.VITE_API_BASE_URL).replace(/\/+$/, "");
-const OWNER_EMAIL = normalizeOwnerEmail(requireEnv("VITE_OWNER_EMAIL", import.meta.env.VITE_OWNER_EMAIL));
+const OWNER_EMAIL = normalizeOwnerEmail(
+  (import.meta.env.VITE_OWNER_EMAIL as string | undefined) ??
+    "aristaplumbingllc@gmail.com"
+);
 const API_AUTH_TOKEN = (import.meta.env.VITE_API_AUTH_TOKEN as string | undefined)?.trim() || "";
 
 export type Health = {

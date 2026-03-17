@@ -924,7 +924,10 @@ async function writeState(db: D1Database, payload: StatePayload): Promise<ApiSta
   return readState(db, payload.owner);
 }
 
-async function proxyInvoiceEmail(payload: EmailProxyPayload, env: Env): Promise<{ status: number; body: Record<string, unknown> }> {
+async function proxyInvoiceEmail(
+  payload: EmailProxyPayload,
+  env: Env,
+): Promise<{ status: number; body: Record<string, unknown> }> {
   const emailServiceUrl = (env.EMAIL_SERVICE_URL ?? "").trim();
   const emailServiceApiKey = (env.EMAIL_SERVICE_API_KEY ?? "").trim();
 
@@ -934,35 +937,43 @@ async function proxyInvoiceEmail(payload: EmailProxyPayload, env: Env): Promise<
 
   const endpoint = `${emailServiceUrl.replace(/\/+$/, "")}/send-invoice-email`;
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": emailServiceApiKey,
-    },
-    body: JSON.stringify({
-      to_email: payload.toEmail,
-      customer_name: payload.customerName,
-      amount: payload.amount,
-      status: payload.status,
-      job_number: payload.jobNumber,
-      notes: payload.notes,
-      payment_url: payload.paymentUrl,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": emailServiceApiKey,
+      },
+      body: JSON.stringify({
+        to_email: payload.toEmail,
+        customer_name: payload.customerName,
+        amount: payload.amount,
+        status: payload.status,
+        job_number: payload.jobNumber,
+        notes: payload.notes,
+        payment_url: payload.paymentUrl,
+      }),
+    });
+  } catch (err) {
+    // Render down / wrong URL / DNS / etc.
+    return {
+      status: 502,
+      body: {
+        ok: false,
+        error: "Email service unreachable.",
+        details: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
 
   let body: Record<string, unknown>;
   try {
     body = (await response.json()) as Record<string, unknown>;
   } catch {
-    body = {
-      ok: false,
-      error: "Email service returned a non-JSON response.",
-    };
+    body = { ok: false, error: "Email service returned a non-JSON response." };
   }
 
-  return {
-    status: response.status,
-    body,
-  };
+  return { status: response.status, body };
 }
+
