@@ -1,0 +1,1 @@
+web: gunicorn email_service:app --bind 0.0.0.0:${PORT:-5050} --workers 2 --threads 4

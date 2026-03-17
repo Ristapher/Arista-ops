@@ -1,0 +1,18 @@
+name = "arista-ops-api"
+main = "src/index.ts"
+compatibility_date = "2026-03-10"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "arista_ops"
+database_id = "78a63806-cc36-44cc-a2f7-ad771e1276fb"
+
+[vars]
+ALLOWED_ORIGIN = "http://127.0.0.1:5173,https://your-frontend-domain.example"
+OWNER_EMAIL = "aristaplumbingllc@gmail.com"
+EMAIL_SERVICE_URL = "http://127.0.0.1:5050"
+EMAIL_SERVICE_API_KEY = "229303662293036613666"
+# Set these with wrangler secret put for production:
+# API_AUTH_TOKEN
+# EMAIL_SERVICE_URL
+# EMAIL_SERVICE_API_KEY

@@ -1,0 +1,1 @@
+npx.cmd wrangler d1 execute arista_ops --file=migrations/0004_add_followups_done.sql --remote

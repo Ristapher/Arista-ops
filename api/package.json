@@ -1,0 +1,18 @@
+{
+  "name": "arista-ops-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:apply": "wrangler d1 execute arista_ops --file=schema.sql --remote",
+    "db:migrate:job-number": "wrangler d1 execute arista_ops --file=migrations/0001_add_job_number_columns.sql --remote",
+    "db:migrate:state-version": "wrangler d1 execute arista_ops --file=migrations/0002_add_owner_state_version.sql --remote",
+    "db:migrate:followup-method": "wrangler d1 execute arista_ops --file=migrations/0003_add_followup_method.sql --remote",
+    "db:migrate:followups-done": "wrangler d1 execute arista_ops --file=migrations/0004_add_followups_done.sql --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0",
+    "typescript": "^5.7.0"
+  }
+}
