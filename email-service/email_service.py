@@ -1,4 +1,4 @@
-# C:\Users\forgo\arista-ops\email-service\email_service.py
+# email-service/email_service.py
 import hmac
 import html
 import mimetypes
@@ -12,10 +12,20 @@ from typing import Any
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from werkzeug.exceptions import HTTPException
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
 app = Flask(__name__)
+from flask import jsonify
+
+@app.get("/")
+def root():
+    return jsonify(ok=True, service="aristaemail")
+
+@app.get("/health")
+def health():
+    return jsonify(ok=True)
 app.config["MAX_CONTENT_LENGTH"] = 256 * 1024
 
 allowed_origins = [
@@ -26,12 +36,23 @@ allowed_origins = [
 CORS(
     app,
     resources={
+        r"/": {"origins": "*"},
         r"/send-invoice-email": {"origins": allowed_origins or "*"},
         r"/health": {"origins": "*"},
     },
 )
 
 SERVICE_API_KEY = (os.getenv("SERVICE_API_KEY") or "").strip()
+
+
+@app.errorhandler(HTTPException)
+def handle_http_errors(err: HTTPException):
+    return jsonify(ok=False, error=err.description), err.code
+
+
+@app.errorhandler(Exception)
+def handle_all_errors(err: Exception):
+    return jsonify(ok=False, error=str(err)), 500
 
 
 def env_str(name: str, default: str = "") -> str:
@@ -43,13 +64,13 @@ def require_api_key():
     provided = (request.headers.get("x-api-key") or "").strip()
 
     if not provided:
-        return jsonify({"ok": False, "error": "Missing x-api-key header"}), 401
+        return jsonify(ok=False, error="Missing x-api-key header"), 401
 
     if not SERVICE_API_KEY:
-        return jsonify({"ok": False, "error": "SERVICE_API_KEY is not configured"}), 500
+        return jsonify(ok=False, error="SERVICE_API_KEY is not configured"), 500
 
     if not hmac.compare_digest(provided, SERVICE_API_KEY):
-        return jsonify({"ok": False, "error": "Invalid API key"}), 401
+        return jsonify(ok=False, error="Invalid API key"), 401
 
     return None
 
@@ -298,9 +319,14 @@ def parse_payload(payload: dict[str, Any]) -> tuple[str, str, float, str, str, s
     return to_email, customer_name, amount, status, job_number, notes, payment_url
 
 
+@app.get("/")
+def root():
+    return jsonify(ok=True, service="aristaemail")
+
+
 @app.get("/health")
 def health():
-    return jsonify({"ok": True, "service": "python-email-sender"}), 200
+    return jsonify(ok=True)
 
 
 @app.post("/send-invoice-email")
@@ -314,7 +340,7 @@ def send_invoice_email():
     try:
         to_email, customer_name, amount, status, job_number, notes, payment_url = parse_payload(payload)
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify(ok=False, error=str(exc)), 400
 
     smtp_server = env_str("SMTP_SERVER")
     smtp_port = int(env_str("SMTP_PORT", "587"))
@@ -328,7 +354,7 @@ def send_invoice_email():
     logo_path = env_str("LOGO_PATH")
 
     if not all([smtp_server, smtp_username, smtp_password, sender_email]):
-        return jsonify({"ok": False, "error": "Email service is not fully configured"}), 500
+        return jsonify(ok=False, error="Email service is not fully configured"), 500
 
     logo_asset = load_logo_asset(logo_path)
     logo_cid = make_msgid(domain="arista.local")[1:-1] if logo_asset else None
@@ -386,11 +412,11 @@ def send_invoice_email():
             server.login(smtp_username, smtp_password)
             server.send_message(msg)
     except smtplib.SMTPException as exc:
-        return jsonify({"ok": False, "error": f"SMTP error: {exc}"}), 502
+        return jsonify(ok=False, error=f"SMTP error: {exc}"), 502
     except OSError as exc:
-        return jsonify({"ok": False, "error": f"Unable to connect to the email server: {exc}"}), 502
+        return jsonify(ok=False, error=f"Unable to connect to the email server: {exc}"), 502
 
-    return jsonify({"ok": True, "message": "Email sent successfully"}), 200
+    return jsonify(ok=True, message="sent"), 200
 
 
 if __name__ == "__main__":
