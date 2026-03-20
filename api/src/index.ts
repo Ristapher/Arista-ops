@@ -967,13 +967,61 @@ async function proxyInvoiceEmail(
     };
   }
 
-  let body: Record<string, unknown>;
-  try {
-    body = (await response.json()) as Record<string, unknown>;
-  } catch {
-    body = { ok: false, error: "Email service returned a non-JSON response." };
+  const contentType = response.headers.get("content-type") ?? "";
+  const isJson = contentType.toLowerCase().includes("application/json");
+
+  let parsed: unknown = null;
+  let rawText: string | null = null;
+
+  if (isJson) {
+    try {
+      parsed = await response.clone().json();
+    } catch {
+      parsed = null;
+    }
   }
 
-  return { status: response.status, body };
-}
+  if (parsed === null) {
+    try {
+      rawText = await response.clone().text();
+    } catch {
+      rawText = null;
+    }
+  }
 
+  const parsedRecord =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+
+  if (!response.ok) {
+    return {
+      status: response.status,
+      body: {
+        ok: false,
+        error:
+          (parsedRecord?.error as string | undefined) ||
+          (parsedRecord?.message as string | undefined) ||
+          "Email service error.",
+        upstream_status: response.status,
+        upstream_non_json: !isJson,
+        upstream_body_snippet: rawText ? rawText.slice(0, 300) : null,
+      },
+    };
+  }
+
+  if (parsedRecord === null) {
+    // Service replied 2xx but not JSON (still not ideal).
+    return {
+      status: 502,
+      body: {
+        ok: false,
+        error: "Email service returned non-JSON success response.",
+        upstream_status: response.status,
+        upstream_body_snippet: rawText ? rawText.slice(0, 300) : null,
+      },
+    };
+  }
+
+  return { status: response.status, body: parsedRecord };
+}

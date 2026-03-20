@@ -20,15 +20,23 @@ app = Flask(__name__)
 from flask import jsonify
 
 @app.get("/")
-def root():
-    return jsonify(ok=True, service="aristaemail")
+def home():
+    return {"ok": True, "service": "email-service"}
 
 @app.get("/health")
 def health():
-    return jsonify(ok=True)
-app.config["MAX_CONTENT_LENGTH"] = 256 * 1024
+    return {"ok": True}
 
-allowed_origins = [
+# if your worker calls /api/health
+@app.get("/api/health")
+def api_health():
+    return {"ok": True}
+
+# whatever your worker calls for sending:
+@app.post("/api/send-invoice-email")
+def send_invoice_email():
+    ...
+    return {"ok": True}allowed_origins = [
     origin.strip()
     for origin in (os.getenv("ALLOWED_ORIGIN") or "").split(",")
     if origin.strip()
