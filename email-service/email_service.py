@@ -327,21 +327,6 @@ def parse_payload(payload: dict[str, Any]) -> tuple[str, str, float, str, str, s
     return to_email, customer_name, amount, status, job_number, notes, payment_url
 
 
-@app.get("/")
-def root():
-    return jsonify(ok=True, service="aristaemail")
-
-
-@app.get("/health")
-def health():
-    return jsonify(ok=True)
-
-
-@app.post("/send-invoice-email")
-def send_invoice_email():
-    auth_error = require_api_key()
-    if auth_error:
-        return auth_error
 
     payload: dict[str, Any] = request.get_json(silent=True) or {}
 
