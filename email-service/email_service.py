@@ -17,40 +17,129 @@ from werkzeug.exceptions import HTTPException
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
 app = Flask(__name__)
-from flask import jsonify
 
-@app.get("/")
-def home():
-    return {"ok": True, "service": "email-service"}
-
-@app.get("/health")
-def health():
-    return {"ok": True}
-
-# if your worker calls /api/health
-@app.get("/api/health")
-def api_health():
-    return {"ok": True}
-
-# whatever your worker calls for sending:
-@app.post("/api/send-invoice-email")
-def send_invoice_email():
-    ...
-    return {"ok": True}allowed_origins = [
+allowed_origins = [
     origin.strip()
     for origin in (os.getenv("ALLOWED_ORIGIN") or "").split(",")
     if origin.strip()
 ]
+
 CORS(
     app,
     resources={
         r"/": {"origins": "*"},
-        r"/send-invoice-email": {"origins": allowed_origins or "*"},
         r"/health": {"origins": "*"},
+        r"/api/health": {"origins": "*"},
+        r"/api/send-invoice-email": {"origins": allowed_origins or "*"},
     },
 )
 
 SERVICE_API_KEY = (os.getenv("SERVICE_API_KEY") or "").strip()
+
+
+@app.get("/")
+def home():
+    return jsonify(ok=True, service="email-service")
+
+
+@app.get("/health")
+def health():
+    return jsonify(ok=True)
+
+
+@app.get("/api/health")
+def api_health():
+    return jsonify(ok=True)
+
+
+@app.post("/api/send-invoice-email")
+def send_invoice_email():
+    payload: dict[str, Any] = request.get_json(silent=True) or {}
+
+    try:
+        to_email, customer_name, amount, status, job_number, notes, payment_url = parse_payload(payload)
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+
+    # Optional: require key if you want (otherwise delete these 2 lines)
+    # err = require_api_key()
+    # if err: return err
+
+    smtp_server = env_str("SMTP_SERVER")
+    smtp_port = int(env_str("SMTP_PORT", "587"))
+    smtp_username = env_str("SMTP_USERNAME")
+    smtp_password = env_str("SMTP_PASSWORD")
+    sender_email = env_str("SENDER_EMAIL")
+    sender_name = env_str("SENDER_NAME", "Arista Plumbing")
+    reply_to_email = env_str("REPLY_TO_EMAIL", sender_email)
+    company_name = env_str("COMPANY_NAME", sender_name)
+    company_phone = env_str("COMPANY_PHONE")
+    logo_path = env_str("LOGO_PATH")
+
+    if not all([smtp_server, smtp_username, smtp_password, sender_email]):
+        return jsonify(ok=False, error="Email service is not fully configured"), 500
+
+    logo_asset = load_logo_asset(logo_path)
+    logo_cid = make_msgid(domain="arista.local")[1:-1] if logo_asset else None
+
+    subject = build_subject(company_name, customer_name, status, job_number)
+    text_body = build_text_body(
+        company_name=company_name,
+        customer_name=customer_name,
+        amount=amount,
+        status=status,
+        job_number=job_number,
+        notes=notes,
+        payment_url=payment_url,
+        company_phone=company_phone,
+        reply_to_email=reply_to_email,
+    )
+    html_body = build_html_body(
+        company_name=company_name,
+        customer_name=customer_name,
+        amount=amount,
+        status=status,
+        job_number=job_number,
+        notes=notes,
+        payment_url=payment_url,
+        company_phone=company_phone,
+        reply_to_email=reply_to_email,
+        logo_cid=logo_cid,
+    )
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = f"{sender_name} <{sender_email}>"
+    msg["To"] = to_email
+    if reply_to_email:
+        msg["Reply-To"] = reply_to_email
+
+    msg.set_content(text_body)
+    msg.add_alternative(html_body, subtype="html")
+
+    if logo_asset and logo_cid:
+        logo_bytes, logo_subtype, logo_filename = logo_asset
+        html_part = msg.get_payload()[-1]
+        html_part.add_related(
+            logo_bytes,
+            maintype="image",
+            subtype=logo_subtype,
+            cid=f"<{logo_cid}>",
+            filename=logo_filename,
+            disposition="inline",
+        )
+
+    try:
+        with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
+            server.starttls()
+            server.login(smtp_username, smtp_password)
+            server.send_message(msg)
+    except smtplib.SMTPException as exc:
+        return jsonify(ok=False, error=f"SMTP error: {exc}"), 502
+    except OSError as exc:
+        return jsonify(ok=False, error=f"Unable to connect to the email server: {exc}"), 502
+
+    return jsonify(ok=True, message="sent"), 200
 
 
 @app.errorhandler(HTTPException)
@@ -325,91 +414,6 @@ def parse_payload(payload: dict[str, Any]) -> tuple[str, str, float, str, str, s
         raise ValueError("Invalid amount")
 
     return to_email, customer_name, amount, status, job_number, notes, payment_url
-
-
-
-    payload: dict[str, Any] = request.get_json(silent=True) or {}
-
-    try:
-        to_email, customer_name, amount, status, job_number, notes, payment_url = parse_payload(payload)
-    except ValueError as exc:
-        return jsonify(ok=False, error=str(exc)), 400
-
-    smtp_server = env_str("SMTP_SERVER")
-    smtp_port = int(env_str("SMTP_PORT", "587"))
-    smtp_username = env_str("SMTP_USERNAME")
-    smtp_password = env_str("SMTP_PASSWORD")
-    sender_email = env_str("SENDER_EMAIL")
-    sender_name = env_str("SENDER_NAME", "Arista Plumbing")
-    reply_to_email = env_str("REPLY_TO_EMAIL", sender_email)
-    company_name = env_str("COMPANY_NAME", sender_name)
-    company_phone = env_str("COMPANY_PHONE")
-    logo_path = env_str("LOGO_PATH")
-
-    if not all([smtp_server, smtp_username, smtp_password, sender_email]):
-        return jsonify(ok=False, error="Email service is not fully configured"), 500
-
-    logo_asset = load_logo_asset(logo_path)
-    logo_cid = make_msgid(domain="arista.local")[1:-1] if logo_asset else None
-
-    subject = build_subject(company_name, customer_name, status, job_number)
-    text_body = build_text_body(
-        company_name=company_name,
-        customer_name=customer_name,
-        amount=amount,
-        status=status,
-        job_number=job_number,
-        notes=notes,
-        payment_url=payment_url,
-        company_phone=company_phone,
-        reply_to_email=reply_to_email,
-    )
-    html_body = build_html_body(
-        company_name=company_name,
-        customer_name=customer_name,
-        amount=amount,
-        status=status,
-        job_number=job_number,
-        notes=notes,
-        payment_url=payment_url,
-        company_phone=company_phone,
-        reply_to_email=reply_to_email,
-        logo_cid=logo_cid,
-    )
-
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = f"{sender_name} <{sender_email}>"
-    msg["To"] = to_email
-    if reply_to_email:
-        msg["Reply-To"] = reply_to_email
-
-    msg.set_content(text_body)
-    msg.add_alternative(html_body, subtype="html")
-
-    if logo_asset and logo_cid:
-        logo_bytes, logo_subtype, logo_filename = logo_asset
-        html_part = msg.get_payload()[-1]
-        html_part.add_related(
-            logo_bytes,
-            maintype="image",
-            subtype=logo_subtype,
-            cid=f"<{logo_cid}>",
-            filename=logo_filename,
-            disposition="inline",
-        )
-
-    try:
-        with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
-            server.starttls()
-            server.login(smtp_username, smtp_password)
-            server.send_message(msg)
-    except smtplib.SMTPException as exc:
-        return jsonify(ok=False, error=f"SMTP error: {exc}"), 502
-    except OSError as exc:
-        return jsonify(ok=False, error=f"Unable to connect to the email server: {exc}"), 502
-
-    return jsonify(ok=True, message="sent"), 200
 
 
 if __name__ == "__main__":
