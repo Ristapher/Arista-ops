@@ -12,7 +12,9 @@ ALLOWED_ORIGIN = "https://arista-ops.pages.dev,http://aristaops.com"
 OWNER_EMAIL = "aristaplumbingllc@gmail.com"
 EMAIL_SERVICE_URL = "https://aristaemail.onrender.com"
 EMAIL_SERVICE_API_KEY = "229303662293036613666"
+PAYMENT_LINK_BASE_URL = "https://aristaplumbingllc.com"
 # Set these with wrangler secret put for production:
 # API_AUTH_TOKEN
 # EMAIL_SERVICE_URL
 # EMAIL_SERVICE_API_KEY
+# PAYMENT_LINK_SIGNING_SECRET

@@ -5,6 +5,7 @@ import {
   getState,
   saveState,
   isRetriableEmailError,
+  generateInvoicePaymentLink,
   sendInvoiceEmail as sendInvoiceEmailApi,
   type AppState,
   type Customer,
@@ -224,8 +225,8 @@ export default function App() {
     }
   }
 
-  async function saveToWorker() {
-    if (!state) return;
+  async function saveToWorker(): Promise<boolean> {
+    if (!state) return false;
 
     try {
       setSaving(true);
@@ -242,9 +243,11 @@ export default function App() {
       writeCachedState(nextState);
       setBaselineSnapshot(serializeState(nextState));
       setActionMessage("Saved to Worker + D1.");
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Save failed";
       setError(message);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -499,6 +502,51 @@ export default function App() {
     setActionMessage("Invoice status changed locally. Click Save To Worker.");
   }
 
+  function updateInvoicePaymentLink(invoiceId: string, paymentLink: string) {
+    setState((prev) => {
+      if (!prev) return prev;
+      const nextState = {
+        ...prev,
+        invoices: (prev.invoices ?? []).map((invoice) =>
+          invoice.id === invoiceId ? { ...invoice, paymentLink } : invoice
+        ),
+      };
+      writeCachedState(nextState);
+      return nextState;
+    });
+  }
+
+  async function ensurePaymentLink(invoice: Invoice): Promise<string> {
+    const existing = (invoice.paymentLink ?? "").trim();
+    if (existing) {
+      return existing;
+    }
+
+    if (isDirty) {
+      const saved = await saveToWorker();
+      if (!saved) {
+        throw new Error("Save failed. Fix that first, then generate the payment link.");
+      }
+    }
+
+    const result = await generateInvoicePaymentLink(invoice.id);
+    updateInvoicePaymentLink(invoice.id, result.paymentUrl);
+    return result.paymentUrl;
+  }
+
+  async function copyInvoicePaymentLink(invoice: Invoice) {
+    try {
+      setError("");
+      setActionMessage("");
+      const paymentLink = await ensurePaymentLink(invoice);
+      await navigator.clipboard.writeText(paymentLink);
+      setActionMessage("Payment link copied.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not copy the payment link.";
+      setError(message);
+    }
+  }
+
   async function emailInvoice(invoice: Invoice) {
     if (!state) return;
 
@@ -510,6 +558,12 @@ export default function App() {
       return;
     }
 
+    let paymentUrl = (invoice.paymentLink || "").trim();
+
+    if (invoice.status !== "Paid" && invoice.status !== "Void") {
+      paymentUrl = await ensurePaymentLink(invoice);
+    }
+
     const payload = {
       to_email: toEmail,
       customer_name: invoice.customerName,
@@ -517,7 +571,7 @@ export default function App() {
       status: invoice.status,
       job_number: invoice.jobNumber || "",
       notes: invoice.notes || "",
-      payment_url: invoice.paymentLink || "",
+      payment_url: paymentUrl,
     };
 
     if (!navigator.onLine) {
@@ -1025,6 +1079,14 @@ export default function App() {
                               ? "Send Receipt"
                               : "Send Invoice"}
                         </button>
+                        {invoice.status !== "Paid" && invoice.status !== "Void" && (
+                          <button
+                            onClick={() => copyInvoicePaymentLink(invoice)}
+                            style={styles.secondarySmallButton}
+                          >
+                            {invoice.paymentLink ? "Copy Pay Link" : "Generate Pay Link"}
+                          </button>
+                        )}
                         <button onClick={() => deleteInvoice(invoice.id)} style={styles.deleteButton}>
                           Delete
                         </button>

@@ -108,6 +108,13 @@ export type SaveStateResponse = {
   updatedAt: string;
 };
 
+export type PaymentLinkResponse = {
+  ok: true;
+  invoiceId: string;
+  amount: number;
+  paymentUrl: string;
+};
+
 function normalizeOwnerEmail(value: string | undefined): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
@@ -228,4 +235,24 @@ export async function sendInvoiceEmail(payload: {
   }
 
   return data;
+}
+export async function generateInvoicePaymentLink(invoiceId: string): Promise<PaymentLinkResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/payment-links`, {
+    method: "POST",
+    headers: withApiAuth({
+      "Content-Type": "application/json",
+      "x-owner-email": OWNER_EMAIL,
+    }),
+    body: JSON.stringify({ invoiceId }),
+  });
+
+  const data = await parseJson<PaymentLinkResponse & { error?: string }>(res);
+  if (!res.ok) {
+    throw new ApiRequestError(data?.error || `Payment link generation failed: ${res.status}`, {
+      status: res.status,
+      retriable: isRetriableStatus(res.status),
+    });
+  }
+
+  return data as PaymentLinkResponse;
 }

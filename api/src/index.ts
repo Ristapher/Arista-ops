@@ -6,6 +6,8 @@ export interface Env {
   API_AUTH_TOKEN?: string;
   EMAIL_SERVICE_URL?: string;
   EMAIL_SERVICE_API_KEY?: string;
+  PAYMENT_LINK_BASE_URL?: string;
+  PAYMENT_LINK_SIGNING_SECRET?: string;
 }
 
 type JsonPrimitive = string | number | boolean | null;
@@ -110,6 +112,10 @@ type EmailProxyPayload = {
   paymentUrl: string;
 };
 
+type PaymentLinkRequestPayload = {
+  invoiceId: string;
+};
+
 const CUSTOMER_TAGS = new Set(["Lead", "Customer", "VIP", "Past Due", "Inactive", ""]);
 const JOB_STATUSES = new Set(["Open", "Scheduled", "In Progress", "Completed", "Canceled", ""]);
 const ESTIMATE_STATUSES = new Set(["Draft", "Sent", "Approved", "Rejected", "Expired", ""]);
@@ -172,6 +178,25 @@ export default {
         const payload = validateEmailProxyPayload(rawBody);
         const result = await proxyInvoiceEmail(payload, env);
         return withCors(env, jsonResponse(result.body, result.status), request);
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/payment-links") {
+        requireApiTokenIfConfigured(request, env);
+        const rawBody = (await request.json()) as unknown;
+        const payload = validatePaymentLinkRequestPayload(rawBody);
+        const owner = resolveOwnerFromRequest(request, env, null);
+        const invoice = await getInvoiceForOwner(env.DB, owner, payload.invoiceId);
+        const paymentUrl = await buildSignedPaymentUrl(invoice, env);
+        return withCors(
+          env,
+          jsonResponse({
+            ok: true,
+            invoiceId: invoice.id,
+            amount: invoice.total,
+            paymentUrl,
+          }),
+          request,
+        );
       }
 
       return withCors(
@@ -488,6 +513,13 @@ function validateFollowUp(input: unknown, index: number): FollowUp {
     notes: normalizeOptionalString(row.notes, `followups[${index}].notes`, MAX_NOTES),
     done: normalizeBoolean(row.done ?? false, `followups[${index}].done`),
     createdAt: normalizeIsoishString(row.createdAt, `followups[${index}].createdAt`),
+  };
+}
+
+function validatePaymentLinkRequestPayload(rawBody: unknown): PaymentLinkRequestPayload {
+  const body = asRecord(rawBody, "request body");
+  return {
+    invoiceId: validateId(body.invoiceId, "invoiceId"),
   };
 }
 
