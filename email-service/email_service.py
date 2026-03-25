@@ -14,7 +14,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=True)
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=False)
 
 app = Flask(__name__)
 
@@ -25,10 +25,6 @@ allowed_origins = [
     if origin.strip()
 ]
 CORS(app, resources={r"/*": {"origins": allowed_origins or "*"}})
-
-SERVICE_API_KEY = (os.getenv("SERVICE_API_KEY") or "").strip()
-
-
 @app.errorhandler(HTTPException)
 def handle_http_errors(err: HTTPException):
     return jsonify(ok=False, error=err.description), err.code
@@ -44,20 +40,23 @@ def env_str(name: str, default: str = "") -> str:
     return value.strip() if isinstance(value, str) else default
 
 
-def require_api_key():
-    provided = (request.headers.get("x-api-key") or "").strip()
+def _norm_key(s: str) -> str:
+    return "".join((s or "").split())
 
+
+def require_api_key():
+    provided = _norm_key(request.headers.get("x-api-key") or "")
     if not provided:
         return jsonify(ok=False, error="Missing x-api-key header"), 401
 
-    if not SERVICE_API_KEY:
+    expected = _norm_key(os.getenv("SERVICE_API_KEY") or "")
+    if not expected:
         return jsonify(ok=False, error="SERVICE_API_KEY is not configured"), 500
 
-    if not hmac.compare_digest(provided, SERVICE_API_KEY):
+    if not hmac.compare_digest(provided, expected):
         return jsonify(ok=False, error="Invalid API key"), 401
 
     return None
-
 
 def format_money(amount: float) -> str:
     return f"${amount:,.2f}"
